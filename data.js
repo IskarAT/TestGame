@@ -16,7 +16,7 @@ export const BUILDINGS = {
     desc: 'Increases maximum population.',
     baseCost: { wood: 10, stone: 5, food: 0 },
     costPercent: 0.15,
-    costFlat: 4, // doubled from 2 -> 4
+    costFlat: 6,
     popCapacityPer: 5,
     flatYield: null,
     jobPercentBoost: null,
@@ -28,7 +28,7 @@ export const BUILDINGS = {
     desc: 'Increases storage capacity for all resources.',
     baseCost: { wood: 20, stone: 10, food: 0 },
     costPercent: 0.12,
-    costFlat: 10, // doubled from 5 -> 10
+    costFlat: 10,
     storageIncrease: { wood: 50, stone: 50, food: 50 },
     flatYield: null,
     jobPercentBoost: null,
@@ -38,9 +38,9 @@ export const BUILDINGS = {
     id: 'forester',
     name: 'Forester',
     desc: 'Improves wood gathering (adds % boost to lumberjacks).',
-    baseCost: { wood: 15, stone: 8, food: 0 },
+    baseCost: { wood: 5, stone: 12},
     costPercent: 0.15,
-    costFlat: 6, // doubled from 3 -> 6
+    costFlat: 8,
     flatYield: null,
     jobPercentBoost: { wood: 0.10 },
     unlocksJob: 'lumberjack'
@@ -49,9 +49,9 @@ export const BUILDINGS = {
     id: 'quarry',
     name: 'Quarry',
     desc: 'Improves stone gathering (adds % boost to stone masons).',
-    baseCost: { wood: 12, stone: 12, food: 0 },
+    baseCost: { wood: 15, stone: 10},
     costPercent: 0.15,
-    costFlat: 6, // doubled from 3 -> 6
+    costFlat: 6,
     flatYield: null,
     jobPercentBoost: { stone: 0.10 },
     unlocksJob: 'stonemason'
@@ -62,9 +62,9 @@ export const BUILDINGS = {
     desc: 'Produces food and improves farmers (flat + %).',
     baseCost: { wood: 8, stone: 4, food: 0 },
     costPercent: 0.12,
-    costFlat: 4, // doubled from 2 -> 4
+    costFlat: 10,
     flatYield: { food: 0.5 },
-    jobPercentBoost: { food: 0.05 },
+    jobPercentBoost: { food: 0.08 },
     unlocksJob: 'farmer'
   }
 };
@@ -83,7 +83,7 @@ export const UPGRADES = {
     name: 'Improved Farming',
     desc: 'Each purchase increases farmers food gain by 25%.',
     baseCost: { food: 50, wood: 30 },
-    multiplier: 5, // cost multiplies by 5 each purchase
+    multiplier: 3, // cost multiplies by 5 each purchase
     maxPurchases: 3,
     effectPer: { farmerPercent: 0.25 } // additive
   },
@@ -92,7 +92,7 @@ export const UPGRADES = {
     name: 'Tooling and Training',
     desc: 'Each purchase increases lumberjack wood gain by 30% and stonemason stone gain by 20%.',
     baseCost: { wood: 50, stone: 30 },
-    multiplier: 5,
+    multiplier: 2.5,
     maxPurchases: 3,
     effectPer: { woodPercent: 0.30, stonePercent: 0.20 }
   },
@@ -101,18 +101,18 @@ export const UPGRADES = {
     name: 'Improved Storage Design',
     desc: 'Each purchase increases storage room capacity by +5 per storage room.',
     baseCost: { wood: 40, stone: 40 },
-    multiplier: 5,
+    multiplier: 4,
     maxPurchases: 3,
     effectPer: { storagePerRoomFlat: 5 }
   },
   housingUpgrade: {
     id: 'housingUpgrade',
     name: 'Advanced Housing',
-    desc: 'Increase population per house to 6 (was 5) and increase food upkeep per population by 25%. Single purchase.',
-    baseCost: { wood: 1500, stone: 1200, food: 800 },
+    desc: 'Increase population per house by +1 and increase food upkeep per population by 35%. Single purchase.',
+    baseCost: { wood: 1000, stone: 1200, food: 1800 },
     multiplier: 5,
     maxPurchases: 1,
-    effectPer: { housePopPer: 1, foodUpkeepPercent: 0.25 }
+    effectPer: { housePopPer: 1, foodUpkeepPercent: 0.35 }
   }
 };
 
@@ -162,3 +162,4 @@ export function createInitialState() {
 
   return state;
 }
+
