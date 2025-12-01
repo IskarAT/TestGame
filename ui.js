@@ -142,10 +142,11 @@ function createBuildingCell(bId) {
   const btn = document.createElement('button');
   btn.className = 'btn';
   btn.textContent = 'Build';
-  // No title attribute
+  // No title attribute to avoid overlapping tooltip
   btn.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
       const cost = game.getBuildCost(bId);
+      // each resource on separate line, capitalized
       return Object.keys(cost).map(k => `${k.charAt(0).toUpperCase() + k.slice(1)}: ${cost[k]}`).join('\n');
     });
   });
@@ -185,8 +186,9 @@ function renderBuildings() {
 
 function updateBuildings() {
   const s = game.state;
-  // Scope to building grid so it doesn't touch upgrade cells
-  const cells = $('building-grid').querySelectorAll('.building-cell');
+  const grid = $('building-grid');
+  if (!grid) return;
+  const cells = grid.querySelectorAll('.building-cell');
   cells.forEach(cell => {
     const id = cell._id;
     const count = s.buildings[id] || 0;
@@ -374,7 +376,9 @@ function createUpgradeCell(upgId) {
       return;
     }
     const success = game.buyUpgrade(upgId);
-    if (success) renderAll();
+    if (success) {
+      renderAll();
+    }
   });
 
   controls.appendChild(count);
@@ -386,7 +390,7 @@ function createUpgradeCell(upgId) {
 
   cell._count = count;
   cell._btn = btn;
-  cell._id = upgId;
+  cell._id = upgId; // ensure _id is set so updateUpgrades can map correctly
   return cell;
 }
 
@@ -408,10 +412,12 @@ function renderUpgrades() {
 
 function updateUpgrades() {
   const s = game.state;
-  // Scope to upgrade grid to avoid touching building cells
-  const cells = $('upgrade-grid').querySelectorAll('.building-cell');
+  const grid = $('upgrade-grid');
+  if (!grid) return;
+  const cells = grid.querySelectorAll('.building-cell');
   cells.forEach(cell => {
     const id = cell._id;
+    if (!id) return;
     const bought = s.upgradesPurchased[id] || 0;
     cell._count.textContent = `Level: ${bought}`;
     const max = UPGRADES[id].maxPurchases;
