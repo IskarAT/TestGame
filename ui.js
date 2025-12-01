@@ -1,12 +1,13 @@
 // ui.js
 import { Game } from './game.js';
-import { BUILDINGS, RES, JOBS, TICKS_PER_SECOND, createInitialState } from './data.js';
+import { BUILDINGS, RES, JOBS, TICKS_PER_SECOND } from './data.js';
 
-let game = null;
+// Instantiate game immediately so UI code can safely read game.state
+let game = new Game();
+
 const tooltip = document.getElementById('tooltip');
 
 function $(id){ return document.getElementById(id); }
-
 function formatNumber(n, decimals=2){
   if (Number.isInteger(n)) return n.toString();
   return n.toFixed(decimals);
@@ -27,10 +28,10 @@ function createResourceRow(key, label) {
   row.appendChild(left);
   row.appendChild(right);
 
-  // mouseover breakdowns
   row.querySelector('[data-storage]').addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
       const s = game.state;
+      if (!s) return 'Loading...';
       if (key === RES.POP) return `Population capacity from houses: ${s.resourceMax[RES.POP]}`;
       const base = { wood: 200, stone: 200, food: 200 }[key] || 0;
       const storageRooms = s.buildings.storage || 0;
@@ -43,6 +44,7 @@ function createResourceRow(key, label) {
   row.querySelector('[data-gain]').addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
       const s = game.state;
+      if (!s) return 'Loading...';
       if (key === RES.FOOD) {
         const foodUpkeepPerSecond = s.population * game.foodPerPopPerSecond;
         return `Food upkeep: ${formatNumber(foodUpkeepPerSecond)}/s (population ${s.population})`;
@@ -61,6 +63,7 @@ function createResourceRow(key, label) {
 
 function renderResources() {
   const container = $('resource-list');
+  if (!container) return;
   container.innerHTML = '';
   const labels = {
     [RES.POP]: 'Population',
@@ -76,12 +79,19 @@ function renderResources() {
 }
 
 function updateResources() {
-  const s = game.state;
+  const s = game && game.state;
   for (const row of document.querySelectorAll('.resource-row')) {
     const key = row.dataset.key;
     const currentEl = row.querySelector('[data-current]');
     const gainEl = row.querySelector('[data-gain]');
     const storageEl = row.querySelector('[data-storage]');
+
+    if (!s) {
+      currentEl.textContent = '...';
+      gainEl.textContent = '';
+      storageEl.textContent = '';
+      continue;
+    }
 
     if (key === RES.POP) {
       currentEl.textContent = `${s.population} / ${s.resourceMax[RES.POP]}`;
@@ -95,10 +105,8 @@ function updateResources() {
     const cur = s.resources[key] || 0;
     const max = s.resourceMax[key] || 0;
 
-    // compute per-second gain using game methods
     const boosts = game.computeJobBoosts();
     const flatYields = game.computeBuildingFlatYieldsPerSecond();
-    // job incomes per second
     let perSecond = 0;
     if (key === RES.FOOD) {
       const farmers = s.jobsAssigned.farmer || 0;
@@ -115,11 +123,9 @@ function updateResources() {
       perSecond += (flatYields.stone || 0);
     }
 
-    // color gain
     gainEl.textContent = `${perSecond >= 0 ? '+' : ''}${formatNumber(perSecond,2)}/s`;
     gainEl.className = perSecond > 0 ? 'resource-stats gain-positive' : (perSecond < 0 ? 'resource-stats gain-negative' : 'resource-stats');
 
-    // current display and color rules
     currentEl.textContent = `${formatNumber(cur,2)} / ${max}`;
     currentEl.className = 'resource-stats';
     if (cur === 0 || cur === max) currentEl.classList.add('resource-zero');
@@ -150,15 +156,16 @@ function createBuildingCell(bId) {
   btn.title = 'Cost: hover to see details';
   btn.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
+      if (!game) return 'Loading...';
       const cost = game.getBuildCost(bId);
       return Object.keys(cost).map(k => `${k}: ${cost[k]}`).join('\n');
     });
   });
   btn.addEventListener('mouseleave', hideTooltip);
   btn.addEventListener('click', () => {
+    if (!game) return;
     const success = game.build(bId);
     if (!success) {
-      // brief visual feedback
       btn.style.transform = 'scale(0.98)';
       setTimeout(()=>btn.style.transform='',120);
     }
@@ -180,6 +187,7 @@ function createBuildingCell(bId) {
 
 function renderBuildings() {
   const grid = $('building-grid');
+  if (!grid) return;
   grid.innerHTML = '';
   const order = ['house','storage','forester','quarry','fields'];
   for (const id of order) {
@@ -190,15 +198,18 @@ function renderBuildings() {
 }
 
 function updateBuildings() {
-  const s = game.state;
+  const s = game && game.state;
   for (const cell of document.querySelectorAll('.building-cell')) {
     const id = cell._id;
-    const count = s.buildings[id] || 0;
+    const count = s ? (s.buildings[id] || 0) : 0;
     cell._count.textContent = `Owned: ${count}`;
+    if (!s) {
+      cell._btn.style.color = 'var(--muted)';
+      continue;
+    }
     const cost = game.getBuildCost(id);
     const canAfford = game.canAfford(cost);
     const exceedsStorage = game.costExceedsStorage(cost);
-    // color logic: default accent, yellow if cannot afford, red if cost exceeds storage
     cell._btn.style.color = 'var(--accent)';
     if (!canAfford) cell._btn.style.color = 'var(--yellow)';
     if (exceedsStorage) cell._btn.style.color = 'var(--danger)';
@@ -225,7 +236,6 @@ function createJobRow(jobId, label) {
   right.appendChild(assignBtn);
   right.appendChild(unassignBtn);
 
-  // gather button for locked jobs
   const gatherBtn = document.createElement('button');
   gatherBtn.className = 'btn';
   gatherBtn.textContent = 'Gather';
@@ -235,10 +245,10 @@ function createJobRow(jobId, label) {
   row.appendChild(left);
   row.appendChild(right);
 
-  // hover tooltip
   row.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
-      const s = game.state;
+      const s = game && game.state;
+      if (!s) return 'Loading...';
       const assigned = s.jobsAssigned[jobId] || 0;
       let income = 0;
       if (jobId === 'farmer') income = game.jobBaseIncomePerSecond.farmer * (1 + (game.computeJobBoosts().food || 0));
@@ -250,6 +260,7 @@ function createJobRow(jobId, label) {
   row.addEventListener('mouseleave', hideTooltip);
 
   assignBtn.addEventListener('click', () => {
+    if (!game) return;
     const totalAssigned = Object.values(game.state.jobsAssigned).reduce((a,b)=>a+b,0);
     if (totalAssigned < game.state.population) {
       game.assignJob(jobId, 1);
@@ -257,6 +268,7 @@ function createJobRow(jobId, label) {
     }
   });
   unassignBtn.addEventListener('click', () => {
+    if (!game) return;
     if ((game.state.jobsAssigned[jobId] || 0) > 0) {
       game.unassignJob(jobId, 1);
       renderAll();
@@ -264,6 +276,7 @@ function createJobRow(jobId, label) {
   });
 
   gatherBtn.addEventListener('click', () => {
+    if (!game) return;
     if (jobId === 'farmer') game.manualGather(RES.FOOD, 5);
     if (jobId === 'lumberjack') game.manualGather(RES.WOOD, 5);
     if (jobId === 'stonemason') game.manualGather(RES.STONE, 5);
@@ -277,11 +290,10 @@ function createJobRow(jobId, label) {
 
 function renderJobs() {
   const container = $('job-list');
+  if (!container) return;
   container.innerHTML = '';
-  // unemployed
   const unemployedRow = createJobRow('unemployed', 'Unemployed');
   unemployedRow.querySelector('.job-desc').textContent = JOBS.unemployed.desc;
-  // remove assign button for unemployed (not meaningful)
   const controls = unemployedRow.querySelector('.job-controls');
   const assignBtn = controls.querySelector('.btn');
   if (assignBtn) controls.removeChild(assignBtn);
@@ -297,15 +309,15 @@ function renderJobs() {
 }
 
 function updateJobs() {
-  const s = game.state;
+  const s = game && game.state;
   for (const row of document.querySelectorAll('.job-row')) {
     const jobId = row.dataset.job;
-    const assigned = s.jobsAssigned[jobId] || 0;
+    const assigned = s ? (s.jobsAssigned[jobId] || 0) : 0;
     row._count.textContent = assigned;
     if (jobId === 'unemployed') {
-      row._count.textContent = s.jobsAssigned.unemployed || 0;
+      row._count.textContent = s ? (s.jobsAssigned.unemployed || 0) : 0;
     } else {
-      const unlocked = s.unlockedJobs[jobId] || false;
+      const unlocked = s ? (s.unlockedJobs[jobId] || false) : false;
       row._gather.style.display = unlocked ? 'none' : 'inline-block';
     }
   }
@@ -315,8 +327,10 @@ function updateJobs() {
 
 function renderLog() {
   const el = $('event-log');
+  if (!el) return;
   el.innerHTML = '';
-  for (const e of game.state.events.slice(0,200)) {
+  const events = game && game.state ? game.state.events : [];
+  for (const e of events.slice(0,200)) {
     const div = document.createElement('div');
     div.textContent = e;
     el.appendChild(div);
@@ -331,18 +345,13 @@ function showTooltip(e, contentFn) {
   tooltip.textContent = text;
   positionTooltip(e);
 }
-
-function hideTooltip() {
-  tooltip.style.display = 'none';
-}
-
+function hideTooltip() { tooltip.style.display = 'none'; }
 function positionTooltip(e) {
   const x = (e.clientX || (e.touches && e.touches[0].clientX)) + 12;
   const y = (e.clientY || (e.touches && e.touches[0].clientY)) + 12;
   tooltip.style.left = `${x}px`;
   tooltip.style.top = `${y}px`;
 }
-
 document.addEventListener('mousemove', (e) => {
   if (tooltip.style.display === 'block') positionTooltip(e);
 });
@@ -353,24 +362,39 @@ function wireControls() {
   const pauseBtn = $('pause-btn');
   const resetBtn = $('reset-btn');
   const tickRateEl = $('tick-rate');
-  tickRateEl.textContent = TICKS_PER_SECOND;
+  if (tickRateEl) tickRateEl.textContent = TICKS_PER_SECOND;
 
-  pauseBtn.addEventListener('click', () => {
-    if (!game) return;
-    if (game.tickInterval) {
-      game.stop();
-      pauseBtn.textContent = 'Unpause';
-    } else {
-      game.start();
-      pauseBtn.textContent = 'Pause';
-    }
-  });
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => {
+      if (!game) return;
+      if (game.tickInterval) {
+        game.stop();
+        pauseBtn.textContent = 'Unpause';
+      } else {
+        game.start();
+        pauseBtn.textContent = 'Pause';
+      }
+    });
+  }
 
-  resetBtn.addEventListener('click', () => {
-    // stop current game and create a fresh one
-    if (game) game.stop();
-    createNewGame();
-  });
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      resetGame();
+    });
+  }
+}
+
+/* ---------- Reset / lifecycle ---------- */
+
+function resetGame() {
+  if (game) {
+    try { game.stop(); } catch(e){ /* ignore */ }
+  }
+  // create a fresh Game instance and start it
+  game = new Game();
+  game.onUpdate(() => renderAll());
+  game.start();
+  renderAll();
 }
 
 /* ---------- Render orchestration ---------- */
@@ -382,34 +406,23 @@ function renderAll() {
   renderLog();
 }
 
-/* ---------- Game lifecycle ---------- */
+/* ---------- Init ---------- */
 
-function createNewGame() {
-  // instantiate new Game and attach UI hooks
-  game = new Game();
-  // ensure initial state has 1 house and starting resources as defined in data.js
-  // Game constructor already calls createInitialState via game.js
-  game.onUpdate(() => renderAll());
-  // start automatically
-  game.start();
-
-  // initial render
-  renderResources();
-  renderBuildings();
-  renderJobs();
-  renderLog();
-  // ensure controls wired
-  wireControls();
-}
-
-// initialize UI and game
 function init() {
   renderResources();
   renderBuildings();
   renderJobs();
   renderLog();
   wireControls();
-  createNewGame();
+
+  // ensure the initial game instance is started and hooked
+  if (game) {
+    game.onUpdate(() => renderAll());
+    game.start();
+  } else {
+    // fallback: create one
+    resetGame();
+  }
 }
 
 init();
