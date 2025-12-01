@@ -2,7 +2,6 @@
 export const TICKS_PER_SECOND = 20;
 export const TICK_MS = 1000 / TICKS_PER_SECOND;
 
-// Resource keys
 export const RES = {
   POP: 'population',
   STONE: 'stone',
@@ -10,7 +9,6 @@ export const RES = {
   FOOD: 'food'
 };
 
-// Building definitions
 export const BUILDINGS = {
   house: {
     id: 'house',
@@ -18,8 +16,7 @@ export const BUILDINGS = {
     desc: 'Increases maximum population.',
     baseCost: { wood: 10, stone: 5, food: 0 },
     costPercent: 0.15,
-    costFlat: 2,
-    // house-specific
+    costFlat: 4, // doubled from 2 -> 4
     popCapacityPer: 5,
     flatYield: null,
     jobPercentBoost: null,
@@ -31,7 +28,7 @@ export const BUILDINGS = {
     desc: 'Increases storage capacity for all resources.',
     baseCost: { wood: 20, stone: 10, food: 0 },
     costPercent: 0.12,
-    costFlat: 5,
+    costFlat: 10, // doubled from 5 -> 10
     storageIncrease: { wood: 50, stone: 50, food: 50 },
     flatYield: null,
     jobPercentBoost: null,
@@ -43,9 +40,9 @@ export const BUILDINGS = {
     desc: 'Improves wood gathering (adds % boost to lumberjacks).',
     baseCost: { wood: 15, stone: 8, food: 0 },
     costPercent: 0.15,
-    costFlat: 3,
+    costFlat: 6, // doubled from 3 -> 6
     flatYield: null,
-    jobPercentBoost: { wood: 0.10 }, // +10% per forester
+    jobPercentBoost: { wood: 0.10 },
     unlocksJob: 'lumberjack'
   },
   quarry: {
@@ -54,7 +51,7 @@ export const BUILDINGS = {
     desc: 'Improves stone gathering (adds % boost to stone masons).',
     baseCost: { wood: 12, stone: 12, food: 0 },
     costPercent: 0.15,
-    costFlat: 3,
+    costFlat: 6, // doubled from 3 -> 6
     flatYield: null,
     jobPercentBoost: { stone: 0.10 },
     unlocksJob: 'stonemason'
@@ -65,14 +62,13 @@ export const BUILDINGS = {
     desc: 'Produces food and improves farmers (flat + %).',
     baseCost: { wood: 8, stone: 4, food: 0 },
     costPercent: 0.12,
-    costFlat: 2,
-    flatYield: { food: 0.5 }, // per field per second (converted per tick)
-    jobPercentBoost: { food: 0.05 }, // +5% per field
+    costFlat: 4, // doubled from 2 -> 4
+    flatYield: { food: 0.5 },
+    jobPercentBoost: { food: 0.05 },
     unlocksJob: 'farmer'
   }
 };
 
-// Job definitions
 export const JOBS = {
   unemployed: { id: 'unemployed', name: 'Unemployed', desc: 'People without a job.' },
   farmer: { id: 'farmer', name: 'Farmer', desc: 'Produces food. Always unaffected by food shortage.' },
@@ -80,7 +76,46 @@ export const JOBS = {
   stonemason: { id: 'stonemason', name: 'Stone Mason', desc: 'Gathers stone.' }
 };
 
-// Initial game state
+// Upgrades definitions
+export const UPGRADES = {
+  farmerBoost: {
+    id: 'farmerBoost',
+    name: 'Improved Farming',
+    desc: 'Each purchase increases farmers food gain by 25%.',
+    baseCost: { food: 50, wood: 30 },
+    multiplier: 5, // cost multiplies by 5 each purchase
+    maxPurchases: 3,
+    effectPer: { farmerPercent: 0.25 } // additive
+  },
+  lumberStoneBoost: {
+    id: 'lumberStoneBoost',
+    name: 'Tooling and Training',
+    desc: 'Each purchase increases lumberjack wood gain by 30% and stonemason stone gain by 20%.',
+    baseCost: { wood: 50, stone: 30 },
+    multiplier: 5,
+    maxPurchases: 3,
+    effectPer: { woodPercent: 0.30, stonePercent: 0.20 }
+  },
+  storageBoost: {
+    id: 'storageBoost',
+    name: 'Improved Storage Design',
+    desc: 'Each purchase increases storage room capacity by +5 per storage room.',
+    baseCost: { wood: 40, stone: 40 },
+    multiplier: 5,
+    maxPurchases: 3,
+    effectPer: { storagePerRoomFlat: 5 }
+  },
+  housingUpgrade: {
+    id: 'housingUpgrade',
+    name: 'Advanced Housing',
+    desc: 'Increase population per house to 6 (was 5) and increase food upkeep per population by 25%. Single purchase.',
+    baseCost: { wood: 1500, stone: 1200, food: 800 },
+    multiplier: 5,
+    maxPurchases: 1,
+    effectPer: { housePopPer: 1, foodUpkeepPercent: 0.25 }
+  }
+};
+
 export function createInitialState() {
   const state = {
     resources: {
@@ -90,7 +125,7 @@ export function createInitialState() {
       [RES.FOOD]: 100
     },
     resourceMax: {
-      [RES.POP]: 0, // computed from houses
+      [RES.POP]: 0,
       [RES.STONE]: 200,
       [RES.WOOD]: 200,
       [RES.FOOD]: 200
@@ -113,16 +148,17 @@ export function createInitialState() {
       lumberjack: false,
       stonemason: false
     },
-    // population tracked as integer, but growth uses accumulator
     population: 0,
     popAccumulator: 0.0,
-    // event log
     events: [],
-    // misc
-    ticks: 0
+    ticks: 0,
+    upgradesPurchased: {
+      farmerBoost: 0,
+      lumberStoneBoost: 0,
+      storageBoost: 0,
+      housingUpgrade: 0
+    }
   };
 
-  // Start with 1 house but 0 population as requested
-  // Ensure storage is enough to buy 1 of each building (we gave starting resources above)
   return state;
 }
