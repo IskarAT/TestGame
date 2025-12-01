@@ -14,7 +14,7 @@ export const BUILDINGS = {
     id: 'house',
     name: 'House',
     desc: 'Increases maximum population.',
-    baseCost: { wood: 10, stone: 5, food: 0 },
+    baseCost: { wood: 10, stone: 5, food: 3 },
     costPercent: 0.15,
     costFlat: 6,
     popCapacityPer: 5,
@@ -26,10 +26,10 @@ export const BUILDINGS = {
     id: 'storage',
     name: 'Storage room',
     desc: 'Increases storage capacity for all resources.',
-    baseCost: { wood: 20, stone: 10, food: 0 },
+    baseCost: { wood: 20, stone: 10, food: 5 },
     costPercent: 0.12,
     costFlat: 10,
-    storageIncrease: { wood: 50, stone: 50, food: 50 },
+    storageIncrease: { wood: 50, stone: 50, food: 20 },
     flatYield: null,
     jobPercentBoost: null,
     unlocksJob: null
@@ -162,4 +162,5 @@ export function createInitialState() {
 
   return state;
 }
+
 
