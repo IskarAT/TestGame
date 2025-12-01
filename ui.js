@@ -300,15 +300,6 @@ function createUpgradeCellsOnce() {
   grid.dataset.initialized = 'true';
 }
 
-/* ---------- Initial creation ---------- */
-
-function initDOMOnce() {
-  createResourceCells();
-  createBuildingCells();
-  createJobRows();
-  createUpgradeCellsOnce();
-}
-
 /* ---------- Update functions (called each tick) ---------- */
 
 function updateResources() {
@@ -551,3 +542,4 @@ function init() {
 }
 
 init();
+
