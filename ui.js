@@ -342,6 +342,7 @@ function updateJobs() {
 
 /* ---------- Upgrades ---------- */
 
+// We'll create upgrade cells once and then update them each tick to avoid DOM replacement
 function createUpgradeCell(upgId) {
   const u = UPGRADES[upgId];
   const cell = document.createElement('div');
@@ -360,6 +361,7 @@ function createUpgradeCell(upgId) {
   const btn = document.createElement('button');
   btn.className = 'btn';
   btn.textContent = 'Upgrade';
+
   btn.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
       const cost = game.getUpgradeCost(upgId);
@@ -367,6 +369,7 @@ function createUpgradeCell(upgId) {
     });
   });
   btn.addEventListener('mouseleave', hideTooltip);
+
   btn.addEventListener('click', () => {
     const exceeds = game.upgradeCostExceedsStorage(upgId);
     const canAfford = game.canAffordUpgrade(upgId);
@@ -377,7 +380,9 @@ function createUpgradeCell(upgId) {
     }
     const success = game.buyUpgrade(upgId);
     if (success) {
-      renderAll();
+      // update UI immediately
+      updateUpgrades();
+      renderAll(); // ensure other UI parts reflect upgrade effects
     }
   });
 
@@ -390,17 +395,29 @@ function createUpgradeCell(upgId) {
 
   cell._count = count;
   cell._btn = btn;
-  cell._id = upgId; // ensure _id is set so updateUpgrades can map correctly
+  cell._id = upgId;
   return cell;
 }
 
-function renderUpgrades() {
+function ensureUpgradeCellsCreated() {
   const grid = $('upgrade-grid');
-  grid.innerHTML = '';
+  if (!grid) return;
+  // If grid already has children, do nothing (cells created)
+  if (grid.dataset.initialized === 'true') return;
+  // create cells once
   for (const id of Object.keys(UPGRADES)) {
     const cell = createUpgradeCell(id);
     grid.appendChild(cell);
   }
+  grid.dataset.initialized = 'true';
+}
+
+function renderUpgrades() {
+  const grid = $('upgrade-grid');
+  if (!grid) return;
+  // create cells only once
+  ensureUpgradeCellsCreated();
+  // then update existing cells
   updateUpgrades();
   const allBought = Object.keys(UPGRADES).every(k => {
     const max = UPGRADES[k].maxPurchases;
