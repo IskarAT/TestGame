@@ -30,6 +30,12 @@
         <div id="building-grid" class="grid"></div>
       </section>
 
+      <section id="upgrades" class="panel">
+        <h2>Upgrades</h2>
+        <div id="upgrade-grid" class="grid"></div>
+        <div id="upgrades-empty" class="small-muted" style="margin-top:8px;display:none">All available upgrades have been bought.</div>
+      </section>
+
       <section id="log" class="panel">
         <h2>Event Log</h2>
         <div id="event-log" class="event-log"></div>
@@ -42,6 +48,10 @@
         <div class="control-row">
           <button id="pause-btn" class="btn">Pause</button>
           <button id="reset-btn" class="btn">Reset</button>
+        </div>
+        <div class="control-row" style="margin-top:8px">
+          <button id="save-btn" class="btn">Save</button>
+          <button id="load-btn" class="btn">Load</button>
         </div>
         <div class="small-muted" style="margin-top:10px">
           Tick rate: <strong id="tick-rate">20</strong> TPS

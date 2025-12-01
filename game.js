@@ -1,13 +1,12 @@
 // game.js
-import { TICKS_PER_SECOND, TICK_MS, RES, BUILDINGS, JOBS, createInitialState } from './data.js';
+import { TICKS_PER_SECOND, TICK_MS, RES, BUILDINGS, JOBS, createInitialState, UPGRADES } from './data.js';
 
 export class Game {
   constructor() {
     this.state = createInitialState();
     this.tickInterval = null;
     this.listeners = [];
-    // constants
-    this.foodPerPopPerSecond = 0.1;
+    this.foodPerPopPerSecondBase = 0.1; // base
     this.populationGrowthRatePerSecond = 0.2;
     this.populationDeclineRatePerSecond = 0.5;
     this.jobBaseIncomePerSecond = {
@@ -31,6 +30,7 @@ export class Game {
     this.tickInterval = null;
   }
 
+  // cost calculation
   getBuildCost(buildingId) {
     const b = BUILDINGS[buildingId];
     const count = this.state.buildings[buildingId] || 0;
@@ -80,19 +80,13 @@ export class Game {
     return true;
   }
 
-  // assign job (fixed): only count non-unemployed assigned workers when checking capacity
+  // job assignment
   assignJob(jobId, amount=1) {
-    // job must be unlocked (except unemployed)
     if (jobId !== 'unemployed' && !this.state.unlockedJobs[jobId]) return false;
-
-    // compute currently assigned non-unemployed workers
     const assignedNonUnemployed = (this.state.jobsAssigned.farmer || 0)
       + (this.state.jobsAssigned.lumberjack || 0)
       + (this.state.jobsAssigned.stonemason || 0);
-
-    // ensure we don't exceed population when adding non-unemployed assignments
     if (jobId === 'unemployed') {
-      // assigning to unemployed is effectively unassigning other jobs; allow only if population allows
       const totalAssigned = assignedNonUnemployed + (this.state.jobsAssigned.unemployed || 0);
       if (totalAssigned + amount > this.state.population) return false;
       this.state.jobsAssigned.unemployed = (this.state.jobsAssigned.unemployed || 0) + amount;
@@ -101,7 +95,6 @@ export class Game {
     } else {
       if (assignedNonUnemployed + amount > this.state.population) return false;
       this.state.jobsAssigned[jobId] = (this.state.jobsAssigned[jobId] || 0) + amount;
-      // recalc unemployed to reflect new assignment
       const newAssignedNonUnemployed = (this.state.jobsAssigned.farmer || 0)
         + (this.state.jobsAssigned.lumberjack || 0)
         + (this.state.jobsAssigned.stonemason || 0);
@@ -113,7 +106,6 @@ export class Game {
 
   unassignJob(jobId, amount=1) {
     this.state.jobsAssigned[jobId] = Math.max(0, (this.state.jobsAssigned[jobId] || 0) - amount);
-    // ensure unemployed reflects freed workers
     const assignedNonUnemployed = (this.state.jobsAssigned.farmer || 0)
       + (this.state.jobsAssigned.lumberjack || 0)
       + (this.state.jobsAssigned.stonemason || 0);
@@ -126,6 +118,43 @@ export class Game {
     this.emitUpdate();
   }
 
+  // Upgrades
+  getUpgradeCost(upgradeId) {
+    const u = UPGRADES[upgradeId];
+    const bought = this.state.upgradesPurchased[upgradeId] || 0;
+    const cost = {};
+    for (const r of Object.keys(u.baseCost)) {
+      cost[r] = Math.floor(u.baseCost[r] * Math.pow(u.multiplier, bought));
+    }
+    return cost;
+  }
+
+  canAffordUpgrade(upgradeId) {
+    const cost = this.getUpgradeCost(upgradeId);
+    return this.canAfford(cost);
+  }
+
+  upgradeCostExceedsStorage(upgradeId) {
+    const cost = this.getUpgradeCost(upgradeId);
+    return this.costExceedsStorage(cost);
+  }
+
+  buyUpgrade(upgradeId) {
+    const u = UPGRADES[upgradeId];
+    const bought = this.state.upgradesPurchased[upgradeId] || 0;
+    if (bought >= u.maxPurchases) return false;
+    const cost = this.getUpgradeCost(upgradeId);
+    if (!this.canAfford(cost)) return false;
+    for (const r of Object.keys(cost)) {
+      this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - cost[r]);
+    }
+    this.state.upgradesPurchased[upgradeId] = bought + 1;
+    this.logEvent(`Bought upgrade: ${u.name} (level ${this.state.upgradesPurchased[upgradeId]})`);
+    this.emitUpdate();
+    return true;
+  }
+
+  // compute job boosts including building boosts and upgrades
   computeJobBoosts() {
     const boosts = { food: 0, wood: 0, stone: 0 };
     for (const bId of Object.keys(this.state.buildings)) {
@@ -138,6 +167,14 @@ export class Game {
         }
       }
     }
+    // upgrades
+    const farmerBoostCount = this.state.upgradesPurchased.farmerBoost || 0;
+    boosts.food += (UPGRADES.farmerBoost.effectPer.farmerPercent || 0) * farmerBoostCount;
+
+    const lsCount = this.state.upgradesPurchased.lumberStoneBoost || 0;
+    boosts.wood += (UPGRADES.lumberStoneBoost.effectPer.woodPercent || 0) * lsCount;
+    boosts.stone += (UPGRADES.lumberStoneBoost.effectPer.stonePercent || 0) * lsCount;
+
     return boosts;
   }
 
@@ -156,6 +193,66 @@ export class Game {
     return flat;
   }
 
+  // compute storage extra per storage room from upgrades
+  storageExtraPerRoom() {
+    const count = this.state.upgradesPurchased.storageBoost || 0;
+    return (UPGRADES.storageBoost.effectPer.storagePerRoomFlat || 0) * count;
+  }
+
+  // compute house pop capacity per house (base 5, housing upgrade adds +1)
+  housePopPer() {
+    const base = BUILDINGS.house.popCapacityPer || 5;
+    const housingBought = this.state.upgradesPurchased.housingUpgrade || 0;
+    if (housingBought > 0) return base + (UPGRADES.housingUpgrade.effectPer.housePopPer || 0);
+    return base;
+  }
+
+  // compute food upkeep per pop including housing upgrade percent
+  foodPerPopPerSecond() {
+    const base = this.foodPerPopPerSecondBase;
+    const housingBought = this.state.upgradesPurchased.housingUpgrade || 0;
+    if (housingBought > 0) {
+      return base * (1 + (UPGRADES.housingUpgrade.effectPer.foodUpkeepPercent || 0));
+    }
+    return base;
+  }
+
+  // Save / Load
+  serializeState() {
+    return JSON.stringify(this.state);
+  }
+
+  saveToLocalStorage(key = 'incremental_save_v1') {
+    try {
+      const data = this.serializeState();
+      localStorage.setItem(key, data);
+      this.logEvent('Game saved.');
+      this.emitUpdate();
+      return true;
+    } catch (e) {
+      console.error('Save failed', e);
+      return false;
+    }
+  }
+
+  loadFromLocalStorage(key = 'incremental_save_v1') {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      // basic validation: must have resources and buildings
+      if (!parsed.resources || !parsed.buildings) return false;
+      this.state = parsed;
+      this.logEvent('Save loaded.');
+      this.emitUpdate();
+      return true;
+    } catch (e) {
+      console.error('Load failed', e);
+      return false;
+    }
+  }
+
+  // main tick
   tick() {
     this.state.ticks++;
     const s = this.state;
@@ -163,10 +260,21 @@ export class Game {
     const flatYieldsPerSecond = this.computeBuildingFlatYieldsPerSecond();
 
     const houses = s.buildings.house || 0;
-    const popCap = houses * BUILDINGS.house.popCapacityPer;
+    const popCap = houses * this.housePopPer();
     s.resourceMax[RES.POP] = popCap;
 
-    const foodUpkeepPerSecond = s.population * this.foodPerPopPerSecond;
+    // compute resourceMax for other resources including storageBoost per room
+    const baseMax = { wood: 200, stone: 200, food: 200 };
+    for (const r of ['wood','stone','food']) {
+      const base = s.resourceMax[r] || baseMax[r];
+      // storage rooms add base BUILDINGS.storage.storageIncrease per room already applied on build
+      // apply additional per-room upgrade
+      const storageRooms = s.buildings.storage || 0;
+      const extraPerRoom = this.storageExtraPerRoom();
+      s.resourceMax[r] = Math.max(base, (s.resourceMax[r] || base) + storageRooms * extraPerRoom);
+    }
+
+    const foodUpkeepPerSecond = s.population * this.foodPerPopPerSecond();
     const foodUpkeepPerTick = foodUpkeepPerSecond / TICKS_PER_SECOND;
 
     const jobIncomePerTick = { food: 0, wood: 0, stone: 0 };
