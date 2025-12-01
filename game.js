@@ -151,9 +151,15 @@ export class Game {
   buyUpgrade(upgradeId) {
     const u = UPGRADES[upgradeId];
     const bought = this.state.upgradesPurchased[upgradeId] || 0;
-    if (bought >= u.maxPurchases) return false;
+    if (bought >= u.maxPurchases) {
+      this.logEvent(`Failed to buy upgrade: ${u.name} (level ${this.state.upgradesPurchased[upgradeId]}), max purchase reached.`);
+      return false;
+    }
     const cost = this.getUpgradeCost(upgradeId);
-    if (!this.canAfford(cost)) return false;
+    if (!this.canAfford(cost)) {
+      this.logEvent(`Failed to buy upgrade: ${u.name} (level ${this.state.upgradesPurchased[upgradeId]}), cannot afford.`);
+      return false;
+    }
     for (const r of Object.keys(cost)) {
       this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - cost[r]);
     }
@@ -346,3 +352,4 @@ export class Game {
     if (s.events.length > 200) s.events.length = 200;
   }
 }
+
