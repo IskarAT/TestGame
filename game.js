@@ -37,13 +37,16 @@ export class Game {
     this.tickInterval = null;
   }
 
+  // Build cost: only apply costFlat to resources that the building requires (base > 0)
   getBuildCost(buildingId) {
     const b = BUILDINGS[buildingId];
     const count = this.state.buildings[buildingId] || 0;
     const cost = {};
+    // iterate over known resource keys
     for (const r of ['wood','stone','food']) {
-      const base = b.baseCost[r] || 0;
-      const val = Math.floor(base * Math.pow(1 + b.costPercent, count) + (b.costFlat || 0) * count);
+      const base = (b.baseCost && b.baseCost[r]) ? b.baseCost[r] : 0;
+      const flatPart = base > 0 ? ((b.costFlat || 0) * count) : 0;
+      const val = Math.floor(base * Math.pow(1 + b.costPercent, count) + flatPart);
       cost[r] = val;
     }
     return cost;
@@ -151,15 +154,9 @@ export class Game {
   buyUpgrade(upgradeId) {
     const u = UPGRADES[upgradeId];
     const bought = this.state.upgradesPurchased[upgradeId] || 0;
-    if (bought >= u.maxPurchases) {
-      this.logEvent(`Failed to buy upgrade: ${u.name} (level ${this.state.upgradesPurchased[upgradeId]}), max purchase reached.`);
-      return false;
-    }
+    if (bought >= u.maxPurchases) return false;
     const cost = this.getUpgradeCost(upgradeId);
-    if (!this.canAfford(cost)) {
-      this.logEvent(`Failed to buy upgrade: ${u.name} (level ${this.state.upgradesPurchased[upgradeId]}), cannot afford.`);
-      return false;
-    }
+    if (!this.canAfford(cost)) return false;
     for (const r of Object.keys(cost)) {
       this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - cost[r]);
     }
@@ -227,6 +224,8 @@ export class Game {
     return base;
   }
 
+  // Save / Load removed in this iteration (per your request)
+
   tick() {
     this.state.ticks++;
     const s = this.state;
@@ -262,35 +261,64 @@ export class Game {
       jobIncomePerTick[k] = (jobIncomePerTick[k] || 0) + (flatYieldsPerSecond[k] / TICKS_PER_SECOND);
     }
 
+    // net food per second (gain)
     const netFoodPerSecond = (jobIncomePerTick.food * TICKS_PER_SECOND) - foodUpkeepPerSecond;
 
+    // If food resource is zero, jobs (except farmers) are 30% less effective
     if (s.resources.food <= 0) {
       jobIncomePerTick.wood *= 0.7;
       jobIncomePerTick.stone *= 0.7;
     }
 
+    // Apply resource deltas per tick
     const foodDelta = jobIncomePerTick.food - foodUpkeepPerTick;
     s.resources.food = Math.max(0, (s.resources.food || 0) + foodDelta);
     s.resources.wood = Math.max(0, (s.resources.wood || 0) + jobIncomePerTick.wood);
     s.resources.stone = Math.max(0, (s.resources.stone || 0) + jobIncomePerTick.stone);
 
+    // clamp to max
     for (const r of [RES.WOOD, RES.STONE, RES.FOOD]) {
-      s.resources[r] = Math.min(s.resources[r], s.resourceMax[r]);
-    }
-
-    if (netFoodPerSecond >= 0) {
-      const missing = Math.max(0, popCap - s.population);
-      const growthPerSecond = missing * this.populationGrowthRatePerSecond;
-      const growthPerTick = growthPerSecond / TICKS_PER_SECOND;
-      s.popAccumulator += growthPerTick;
-    } else {
-      if (netFoodPerSecond < -2 * foodUpkeepPerSecond) {
-        const declinePerSecond = s.population * this.populationDeclineRatePerSecond;
-        const declinePerTick = declinePerSecond / TICKS_PER_SECOND;
-        s.popAccumulator -= declinePerTick;
+      if (s.resourceMax[r] !== undefined) {
+        s.resources[r] = Math.min(s.resources[r], s.resourceMax[r]);
       }
     }
 
+    // Population growth/decline logic changes:
+    // - Growth occurs if remaining food > 0 (s.resources.food > 0)
+    // - If netFoodPerSecond < 0, growth rate reduced by 50% (i.e., *0.5)
+    // - If netFoodPerSecond >= 0, add +5% growth speed for every 3 units of netFoodPerSecond (additive)
+    // - Decline still occurs when netFoodPerSecond < -2 * foodUpkeepPerSecond (as before)
+    if (s.resources.food > 0) {
+      // compute base growth per second based on missing population
+      const missing = Math.max(0, popCap - s.population);
+      let growthPerSecond = missing * this.populationGrowthRatePerSecond;
+
+      if (netFoodPerSecond < 0) {
+        // reduce growth by 50%
+        growthPerSecond *= 0.5;
+      } else {
+        // add +5% per 3 units of netFoodPerSecond
+        const bonusSteps = Math.floor(netFoodPerSecond / 3);
+        if (bonusSteps > 0) {
+          growthPerSecond *= (1 + 0.05 * bonusSteps);
+        }
+      }
+
+      const growthPerTick = growthPerSecond / TICKS_PER_SECOND;
+      s.popAccumulator += growthPerTick;
+    } else {
+      // no positive food remaining: do not add growth (but still allow decline if severe)
+      // nothing to add to popAccumulator here
+    }
+
+    // Decline due to severe negative net food
+    if (netFoodPerSecond < -2 * foodUpkeepPerSecond) {
+      const declinePerSecond = s.population * this.populationDeclineRatePerSecond;
+      const declinePerTick = declinePerSecond / TICKS_PER_SECOND;
+      s.popAccumulator -= declinePerTick;
+    }
+
+    // Apply whole-number population changes from accumulator
     if (s.popAccumulator >= 1) {
       const whole = Math.floor(s.popAccumulator);
       const newPop = Math.min(popCap, s.population + whole);
@@ -352,4 +380,3 @@ export class Game {
     if (s.events.length > 200) s.events.length = 200;
   }
 }
-
