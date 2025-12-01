@@ -112,7 +112,7 @@ function createBuildingCells() {
       const success = game.build(id);
       if (!success) {
         btn.style.transform = 'scale(0.98)';
-        setTimeout(()=>btn.style.transform='',120);
+        setTimeout(()=>btn.style.transform('',120), 120);
       }
       renderAll();
     });
@@ -300,6 +300,15 @@ function createUpgradeCellsOnce() {
   grid.dataset.initialized = 'true';
 }
 
+/* ---------- Initial creation ---------- */
+
+function initDOMOnce() {
+  createResourceCells();
+  createBuildingCells();
+  createJobRows();
+  createUpgradeCellsOnce();
+}
+
 /* ---------- Update functions (called each tick) ---------- */
 
 function updateResources() {
@@ -311,11 +320,11 @@ function updateResources() {
     const storageEl = row.querySelector('[data-storage]');
 
     if (key === RES.POP) {
-      currentEl.textContent = `${s.population} / ${s.resourceMax[RES.POP]}`;
+      currentEl.textContent = `${Math.floor(s.population)} / ${Math.floor(s.resourceMax[RES.POP])}`;
       currentEl.className = '';
       if (s.population < s.resourceMax[RES.POP]) currentEl.classList.add('yellow');
       gainEl.textContent = `accum: ${formatNumber(s.popAccumulator,3)}`;
-      storageEl.textContent = `Capacity from houses: ${s.resourceMax[RES.POP]}`;
+      storageEl.textContent = `Capacity from houses: ${Math.floor(s.resourceMax[RES.POP])}`;
       continue;
     }
 
@@ -343,10 +352,11 @@ function updateResources() {
     gainEl.textContent = `${perSecond >= 0 ? '+' : ''}${formatNumber(perSecond,2)}/s`;
     gainEl.className = perSecond > 0 ? 'resource-stats gain-positive' : (perSecond < 0 ? 'resource-stats gain-negative' : 'resource-stats');
 
-    currentEl.textContent = `${formatNumber(cur,2)} / ${max}`;
+    // Display rounded down values to reduce flicker
+    currentEl.textContent = `${Math.floor(cur)} / ${Math.floor(max)}`;
     currentEl.className = 'resource-stats';
-    if (cur === 0 || cur === max) currentEl.classList.add('resource-zero');
-    storageEl.textContent = `Max: ${max}`;
+    if (Math.floor(cur) === 0 || Math.floor(cur) === Math.floor(max)) currentEl.classList.add('resource-zero');
+    storageEl.textContent = `Max: ${Math.floor(max)}`;
   }
 }
 
@@ -524,7 +534,6 @@ function resetGame() {
 }
 
 function initDOMOnce() {
-  // create all UI cells once
   createResourceCells();
   createBuildingCells();
   createJobRows();
@@ -542,4 +551,3 @@ function init() {
 }
 
 init();
-
