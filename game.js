@@ -6,13 +6,20 @@ export class Game {
     this.state = createInitialState();
     this.tickInterval = null;
     this.listeners = [];
-    this.foodPerPopPerSecondBase = 0.1; // base
+    this.foodPerPopPerSecondBase = 0.1;
     this.populationGrowthRatePerSecond = 0.2;
     this.populationDeclineRatePerSecond = 0.5;
     this.jobBaseIncomePerSecond = {
       farmer: 0.5,
       lumberjack: 0.3,
       stonemason: 0.25
+    };
+
+    // Track base storage max so upgrade adds are derived, not cumulatively applied
+    this.state.resourceBaseMax = {
+      [RES.STONE]: this.state.resourceMax[RES.STONE],
+      [RES.WOOD]: this.state.resourceMax[RES.WOOD],
+      [RES.FOOD]: this.state.resourceMax[RES.FOOD]
     };
   }
 
@@ -30,7 +37,6 @@ export class Game {
     this.tickInterval = null;
   }
 
-  // cost calculation
   getBuildCost(buildingId) {
     const b = BUILDINGS[buildingId];
     const count = this.state.buildings[buildingId] || 0;
@@ -65,22 +71,25 @@ export class Game {
       this.state.resources[r] = Math.max(0, (this.state.resources[r] || 0) - cost[r]);
     }
     this.state.buildings[buildingId] = (this.state.buildings[buildingId] || 0) + 1;
+
     if (buildingId === 'storage') {
+      // Increase base storage max once per build (base effect)
       const inc = BUILDINGS.storage.storageIncrease;
       for (const r of Object.keys(inc)) {
-        this.state.resourceMax[r] = (this.state.resourceMax[r] || 0) + inc[r];
+        this.state.resourceBaseMax[r] = (this.state.resourceBaseMax[r] || 0) + inc[r];
       }
     }
+
     const unlock = BUILDINGS[buildingId].unlocksJob;
     if (unlock) {
       this.state.unlockedJobs[unlock] = true;
     }
+
     this.logEvent(`Built ${BUILDINGS[buildingId].name} (total: ${this.state.buildings[buildingId]})`);
     this.emitUpdate();
     return true;
   }
 
-  // job assignment
   assignJob(jobId, amount=1) {
     if (jobId !== 'unemployed' && !this.state.unlockedJobs[jobId]) return false;
     const assignedNonUnemployed = (this.state.jobsAssigned.farmer || 0)
@@ -154,7 +163,6 @@ export class Game {
     return true;
   }
 
-  // compute job boosts including building boosts and upgrades
   computeJobBoosts() {
     const boosts = { food: 0, wood: 0, stone: 0 };
     for (const bId of Object.keys(this.state.buildings)) {
@@ -167,7 +175,6 @@ export class Game {
         }
       }
     }
-    // upgrades
     const farmerBoostCount = this.state.upgradesPurchased.farmerBoost || 0;
     boosts.food += (UPGRADES.farmerBoost.effectPer.farmerPercent || 0) * farmerBoostCount;
 
@@ -193,13 +200,11 @@ export class Game {
     return flat;
   }
 
-  // compute storage extra per storage room from upgrades
   storageExtraPerRoom() {
     const count = this.state.upgradesPurchased.storageBoost || 0;
     return (UPGRADES.storageBoost.effectPer.storagePerRoomFlat || 0) * count;
   }
 
-  // compute house pop capacity per house (base 5, housing upgrade adds +1)
   housePopPer() {
     const base = BUILDINGS.house.popCapacityPer || 5;
     const housingBought = this.state.upgradesPurchased.housingUpgrade || 0;
@@ -207,7 +212,6 @@ export class Game {
     return base;
   }
 
-  // compute food upkeep per pop including housing upgrade percent
   foodPerPopPerSecond() {
     const base = this.foodPerPopPerSecondBase;
     const housingBought = this.state.upgradesPurchased.housingUpgrade || 0;
@@ -217,42 +221,6 @@ export class Game {
     return base;
   }
 
-  // Save / Load
-  serializeState() {
-    return JSON.stringify(this.state);
-  }
-
-  saveToLocalStorage(key = 'incremental_save_v1') {
-    try {
-      const data = this.serializeState();
-      localStorage.setItem(key, data);
-      this.logEvent('Game saved.');
-      this.emitUpdate();
-      return true;
-    } catch (e) {
-      console.error('Save failed', e);
-      return false;
-    }
-  }
-
-  loadFromLocalStorage(key = 'incremental_save_v1') {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return false;
-      const parsed = JSON.parse(raw);
-      // basic validation: must have resources and buildings
-      if (!parsed.resources || !parsed.buildings) return false;
-      this.state = parsed;
-      this.logEvent('Save loaded.');
-      this.emitUpdate();
-      return true;
-    } catch (e) {
-      console.error('Load failed', e);
-      return false;
-    }
-  }
-
-  // main tick
   tick() {
     this.state.ticks++;
     const s = this.state;
@@ -263,16 +231,12 @@ export class Game {
     const popCap = houses * this.housePopPer();
     s.resourceMax[RES.POP] = popCap;
 
-    // compute resourceMax for other resources including storageBoost per room
-    const baseMax = { wood: 200, stone: 200, food: 200 };
-    for (const r of ['wood','stone','food']) {
-      const base = s.resourceMax[r] || baseMax[r];
-      // storage rooms add base BUILDINGS.storage.storageIncrease per room already applied on build
-      // apply additional per-room upgrade
-      const storageRooms = s.buildings.storage || 0;
-      const extraPerRoom = this.storageExtraPerRoom();
-      s.resourceMax[r] = Math.max(base, (s.resourceMax[r] || base) + storageRooms * extraPerRoom);
-    }
+    // Effective max storage = baseMax (built rooms) + (storageRooms * extra per room from upgrade)
+    const storageRooms = s.buildings.storage || 0;
+    const extraPerRoom = this.storageExtraPerRoom();
+    s.resourceMax[RES.WOOD] = (s.resourceBaseMax[RES.WOOD] || 0) + storageRooms * extraPerRoom;
+    s.resourceMax[RES.STONE] = (s.resourceBaseMax[RES.STONE] || 0) + storageRooms * extraPerRoom;
+    s.resourceMax[RES.FOOD] = (s.resourceBaseMax[RES.FOOD] || 0) + storageRooms * extraPerRoom;
 
     const foodUpkeepPerSecond = s.population * this.foodPerPopPerSecond();
     const foodUpkeepPerTick = foodUpkeepPerSecond / TICKS_PER_SECOND;
@@ -305,9 +269,7 @@ export class Game {
     s.resources.stone = Math.max(0, (s.resources.stone || 0) + jobIncomePerTick.stone);
 
     for (const r of [RES.WOOD, RES.STONE, RES.FOOD]) {
-      if (s.resourceMax[r] !== undefined) {
-        s.resources[r] = Math.min(s.resources[r], s.resourceMax[r]);
-      }
+      s.resources[r] = Math.min(s.resources[r], s.resourceMax[r]);
     }
 
     if (netFoodPerSecond >= 0) {
