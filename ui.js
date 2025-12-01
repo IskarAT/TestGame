@@ -2,9 +2,7 @@
 import { Game } from './game.js';
 import { BUILDINGS, RES, JOBS, TICKS_PER_SECOND } from './data.js';
 
-// Instantiate game immediately so UI code can safely read game.state
 let game = new Game();
-
 const tooltip = document.getElementById('tooltip');
 
 function $(id){ return document.getElementById(id); }
@@ -13,7 +11,7 @@ function formatNumber(n, decimals=2){
   return n.toFixed(decimals);
 }
 
-/* ---------- UI creation ---------- */
+/* ---------- Resources UI ---------- */
 
 function createResourceRow(key, label) {
   const row = document.createElement('div');
@@ -30,7 +28,7 @@ function createResourceRow(key, label) {
 
   row.querySelector('[data-storage]').addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
-      const s = game.state;
+      const s = game && game.state;
       if (!s) return 'Loading...';
       if (key === RES.POP) return `Population capacity from houses: ${s.resourceMax[RES.POP]}`;
       const base = { wood: 200, stone: 200, food: 200 }[key] || 0;
@@ -43,7 +41,7 @@ function createResourceRow(key, label) {
 
   row.querySelector('[data-gain]').addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
-      const s = game.state;
+      const s = game && game.state;
       if (!s) return 'Loading...';
       if (key === RES.FOOD) {
         const foodUpkeepPerSecond = s.population * game.foodPerPopPerSecond;
@@ -156,14 +154,12 @@ function createBuildingCell(bId) {
   btn.title = 'Cost: hover to see details';
   btn.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
-      if (!game) return 'Loading...';
       const cost = game.getBuildCost(bId);
       return Object.keys(cost).map(k => `${k}: ${cost[k]}`).join('\n');
     });
   });
   btn.addEventListener('mouseleave', hideTooltip);
   btn.addEventListener('click', () => {
-    if (!game) return;
     const success = game.build(bId);
     if (!success) {
       btn.style.transform = 'scale(0.98)';
@@ -216,7 +212,7 @@ function updateBuildings() {
   }
 }
 
-/* ---------- Jobs UI ---------- */
+/* ---------- Jobs UI (updated behavior) ---------- */
 
 function createJobRow(jobId, label) {
   const row = document.createElement('div');
@@ -228,16 +224,16 @@ function createJobRow(jobId, label) {
   right.className = 'job-controls';
   right.innerHTML = `<div class="small-muted" data-count>0</div>`;
   const assignBtn = document.createElement('button');
-  assignBtn.className = 'btn';
+  assignBtn.className = 'btn assign-plus';
   assignBtn.textContent = '+';
   const unassignBtn = document.createElement('button');
-  unassignBtn.className = 'btn';
+  unassignBtn.className = 'btn assign-minus';
   unassignBtn.textContent = '-';
   right.appendChild(assignBtn);
   right.appendChild(unassignBtn);
 
   const gatherBtn = document.createElement('button');
-  gatherBtn.className = 'btn';
+  gatherBtn.className = 'btn gather';
   gatherBtn.textContent = 'Gather';
   gatherBtn.style.marginLeft = '8px';
   right.appendChild(gatherBtn);
@@ -261,12 +257,17 @@ function createJobRow(jobId, label) {
 
   assignBtn.addEventListener('click', () => {
     if (!game) return;
-    const totalAssigned = Object.values(game.state.jobsAssigned).reduce((a,b)=>a+b,0);
-    if (totalAssigned < game.state.population) {
+    // only allow if job unlocked and there is population free
+    if (!game.state.unlockedJobs[jobId]) return;
+    const assignedNonUnemployed = (game.state.jobsAssigned.farmer || 0)
+      + (game.state.jobsAssigned.lumberjack || 0)
+      + (game.state.jobsAssigned.stonemason || 0);
+    if (assignedNonUnemployed < game.state.population) {
       game.assignJob(jobId, 1);
       renderAll();
     }
   });
+
   unassignBtn.addEventListener('click', () => {
     if (!game) return;
     if ((game.state.jobsAssigned[jobId] || 0) > 0) {
@@ -285,6 +286,8 @@ function createJobRow(jobId, label) {
 
   row._count = row.querySelector('[data-count]');
   row._gather = gatherBtn;
+  row._plus = assignBtn;
+  row._minus = unassignBtn;
   return row;
 }
 
@@ -294,9 +297,14 @@ function renderJobs() {
   container.innerHTML = '';
   const unemployedRow = createJobRow('unemployed', 'Unemployed');
   unemployedRow.querySelector('.job-desc').textContent = JOBS.unemployed.desc;
+  // remove +/- and gather for unemployed
   const controls = unemployedRow.querySelector('.job-controls');
-  const assignBtn = controls.querySelector('.btn');
-  if (assignBtn) controls.removeChild(assignBtn);
+  const plus = controls.querySelector('.assign-plus');
+  const minus = controls.querySelector('.assign-minus');
+  const gather = controls.querySelector('.gather');
+  if (plus) controls.removeChild(plus);
+  if (minus) controls.removeChild(minus);
+  if (gather) controls.removeChild(gather);
   container.appendChild(unemployedRow);
 
   const order = ['farmer','lumberjack','stonemason'];
@@ -316,9 +324,34 @@ function updateJobs() {
     row._count.textContent = assigned;
     if (jobId === 'unemployed') {
       row._count.textContent = s ? (s.jobsAssigned.unemployed || 0) : 0;
+      continue;
+    }
+
+    // Determine building count that unlocks this job
+    let unlockBuilding = null;
+    if (jobId === 'farmer') unlockBuilding = 'fields';
+    if (jobId === 'lumberjack') unlockBuilding = 'forester';
+    if (jobId === 'stonemason') unlockBuilding = 'quarry';
+    const buildingCount = s ? (s.buildings[unlockBuilding] || 0) : 0;
+    const unlocked = s ? (s.unlockedJobs[jobId] || false) : false;
+
+    // If no buildings of that type exist, show only Gather button
+    if (buildingCount === 0) {
+      row._gather.style.display = 'inline-block';
+      row._plus.style.display = 'none';
+      row._minus.style.display = 'none';
     } else {
-      const unlocked = s ? (s.unlockedJobs[jobId] || false) : false;
-      row._gather.style.display = unlocked ? 'none' : 'inline-block';
+      // building exists: hide gather, show +/- if unlocked
+      row._gather.style.display = 'none';
+      if (unlocked) {
+        row._plus.style.display = 'inline-block';
+        row._minus.style.display = 'inline-block';
+      } else {
+        // safety: if unlocked flag not set yet, still show gather until unlock
+        row._plus.style.display = 'none';
+        row._minus.style.display = 'none';
+        row._gather.style.display = 'inline-block';
+      }
     }
   }
 }
@@ -337,7 +370,7 @@ function renderLog() {
   }
 }
 
-/* ---------- Tooltip helpers ---------- */
+/* ---------- Tooltip ---------- */
 
 function showTooltip(e, contentFn) {
   const text = contentFn();
@@ -356,7 +389,7 @@ document.addEventListener('mousemove', (e) => {
   if (tooltip.style.display === 'block') positionTooltip(e);
 });
 
-/* ---------- Controls: pause / reset ---------- */
+/* ---------- Controls ---------- */
 
 function wireControls() {
   const pauseBtn = $('pause-btn');
@@ -388,9 +421,8 @@ function wireControls() {
 
 function resetGame() {
   if (game) {
-    try { game.stop(); } catch(e){ /* ignore */ }
+    try { game.stop(); } catch(e){ }
   }
-  // create a fresh Game instance and start it
   game = new Game();
   game.onUpdate(() => renderAll());
   game.start();
@@ -415,12 +447,10 @@ function init() {
   renderLog();
   wireControls();
 
-  // ensure the initial game instance is started and hooked
   if (game) {
     game.onUpdate(() => renderAll());
     game.start();
   } else {
-    // fallback: create one
     resetGame();
   }
 }
