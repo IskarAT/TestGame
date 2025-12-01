@@ -4,9 +4,6 @@ import { BUILDINGS, RES, JOBS, TICKS_PER_SECOND, UPGRADES } from './data.js';
 
 let game = new Game();
 const tooltip = document.getElementById('tooltip');
-const AUTOSAVE_MS = 5 * 60 * 1000; // 5 minutes
-const SAVE_KEY = 'incremental_save_v1';
-let autosaveTimer = null;
 
 function $(id){ return document.getElementById(id); }
 function formatNumber(n, decimals=2){
@@ -14,7 +11,7 @@ function formatNumber(n, decimals=2){
   return n.toFixed(decimals);
 }
 
-/* ---------- Resources UI ---------- */
+/* ---------- Resources ---------- */
 
 function createResourceRow(key, label) {
   const row = document.createElement('div');
@@ -31,8 +28,7 @@ function createResourceRow(key, label) {
 
   row.querySelector('[data-storage]').addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
-      const s = game && game.state;
-      if (!s) return 'Loading...';
+      const s = game.state;
       if (key === RES.POP) return `Population capacity from houses: ${s.resourceMax[RES.POP]}`;
       const base = { wood: 200, stone: 200, food: 200 }[key] || 0;
       const storageRooms = s.buildings.storage || 0;
@@ -45,8 +41,7 @@ function createResourceRow(key, label) {
 
   row.querySelector('[data-gain]').addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
-      const s = game && game.state;
-      if (!s) return 'Loading...';
+      const s = game.state;
       if (key === RES.FOOD) {
         const foodUpkeepPerSecond = s.population * game.foodPerPopPerSecond();
         return `Food upkeep: ${formatNumber(foodUpkeepPerSecond)}/s (population ${s.population})`;
@@ -65,7 +60,6 @@ function createResourceRow(key, label) {
 
 function renderResources() {
   const container = $('resource-list');
-  if (!container) return;
   container.innerHTML = '';
   const labels = {
     [RES.POP]: 'Population',
@@ -81,19 +75,12 @@ function renderResources() {
 }
 
 function updateResources() {
-  const s = game && game.state;
+  const s = game.state;
   for (const row of document.querySelectorAll('.resource-row')) {
     const key = row.dataset.key;
     const currentEl = row.querySelector('[data-current]');
     const gainEl = row.querySelector('[data-gain]');
     const storageEl = row.querySelector('[data-storage]');
-
-    if (!s) {
-      currentEl.textContent = '...';
-      gainEl.textContent = '';
-      storageEl.textContent = '';
-      continue;
-    }
 
     if (key === RES.POP) {
       currentEl.textContent = `${s.population} / ${s.resourceMax[RES.POP]}`;
@@ -135,7 +122,7 @@ function updateResources() {
   }
 }
 
-/* ---------- Buildings UI ---------- */
+/* ---------- Buildings ---------- */
 
 function createBuildingCell(bId) {
   const b = BUILDINGS[bId];
@@ -155,11 +142,10 @@ function createBuildingCell(bId) {
   const btn = document.createElement('button');
   btn.className = 'btn';
   btn.textContent = 'Build';
-  // removed overlapping title attribute per request
+  // No title attribute
   btn.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
       const cost = game.getBuildCost(bId);
-      // each resource on separate line, capitalized
       return Object.keys(cost).map(k => `${k.charAt(0).toUpperCase() + k.slice(1)}: ${cost[k]}`).join('\n');
     });
   });
@@ -188,7 +174,6 @@ function createBuildingCell(bId) {
 
 function renderBuildings() {
   const grid = $('building-grid');
-  if (!grid) return;
   grid.innerHTML = '';
   const order = ['house','storage','forester','quarry','fields'];
   for (const id of order) {
@@ -199,19 +184,16 @@ function renderBuildings() {
 }
 
 function updateBuildings() {
-  const s = game && game.state;
-  for (const cell of document.querySelectorAll('.building-cell')) {
+  const s = game.state;
+  // Scope to building grid so it doesn't touch upgrade cells
+  const cells = $('building-grid').querySelectorAll('.building-cell');
+  cells.forEach(cell => {
     const id = cell._id;
-    const count = s ? (s.buildings[id] || 0) : 0;
+    const count = s.buildings[id] || 0;
     cell._count.textContent = `Owned: ${count}`;
-    if (!s) {
-      cell._btn.style.color = 'var(--muted)';
-      continue;
-    }
     const cost = game.getBuildCost(id);
     const canAfford = game.canAfford(cost);
     const exceedsStorage = game.costExceedsStorage(cost);
-    // color logic: red if exceeds storage, yellow if cannot afford, accent otherwise
     if (exceedsStorage) {
       cell._btn.style.color = 'var(--danger)';
     } else if (!canAfford) {
@@ -219,10 +201,10 @@ function updateBuildings() {
     } else {
       cell._btn.style.color = 'var(--accent)';
     }
-  }
+  });
 }
 
-/* ---------- Jobs UI ---------- */
+/* ---------- Jobs ---------- */
 
 function createJobRow(jobId, label) {
   const row = document.createElement('div');
@@ -253,8 +235,7 @@ function createJobRow(jobId, label) {
 
   row.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
-      const s = game && game.state;
-      if (!s) return 'Loading...';
+      const s = game.state;
       const assigned = s.jobsAssigned[jobId] || 0;
       let income = 0;
       if (jobId === 'farmer') income = game.jobBaseIncomePerSecond.farmer * (1 + (game.computeJobBoosts().food || 0));
@@ -266,27 +247,26 @@ function createJobRow(jobId, label) {
   row.addEventListener('mouseleave', hideTooltip);
 
   assignBtn.addEventListener('click', () => {
-    if (!game) return;
-    if (!game.state.unlockedJobs[jobId]) return;
-    const assignedNonUnemployed = (game.state.jobsAssigned.farmer || 0)
-      + (game.state.jobsAssigned.lumberjack || 0)
-      + (game.state.jobsAssigned.stonemason || 0);
-    if (assignedNonUnemployed < game.state.population) {
+    const s = game.state;
+    if (!s.unlockedJobs[jobId]) return;
+    const assignedNonUnemployed = (s.jobsAssigned.farmer || 0)
+      + (s.jobsAssigned.lumberjack || 0)
+      + (s.jobsAssigned.stonemason || 0);
+    if (assignedNonUnemployed < s.population) {
       game.assignJob(jobId, 1);
       renderAll();
     }
   });
 
   unassignBtn.addEventListener('click', () => {
-    if (!game) return;
-    if ((game.state.jobsAssigned[jobId] || 0) > 0) {
+    const s = game.state;
+    if ((s.jobsAssigned[jobId] || 0) > 0) {
       game.unassignJob(jobId, 1);
       renderAll();
     }
   });
 
   gatherBtn.addEventListener('click', () => {
-    if (!game) return;
     if (jobId === 'farmer') game.manualGather(RES.FOOD, 5);
     if (jobId === 'lumberjack') game.manualGather(RES.WOOD, 5);
     if (jobId === 'stonemason') game.manualGather(RES.STONE, 5);
@@ -302,7 +282,6 @@ function createJobRow(jobId, label) {
 
 function renderJobs() {
   const container = $('job-list');
-  if (!container) return;
   container.innerHTML = '';
   const unemployedRow = createJobRow('unemployed', 'Unemployed');
   unemployedRow.querySelector('.job-desc').textContent = JOBS.unemployed.desc;
@@ -325,22 +304,21 @@ function renderJobs() {
 }
 
 function updateJobs() {
-  const s = game && game.state;
+  const s = game.state;
   for (const row of document.querySelectorAll('.job-row')) {
     const jobId = row.dataset.job;
-    const assigned = s ? (s.jobsAssigned[jobId] || 0) : 0;
+    const assigned = s.jobsAssigned[jobId] || 0;
     row._count.textContent = assigned;
     if (jobId === 'unemployed') {
-      row._count.textContent = s ? (s.jobsAssigned.unemployed || 0) : 0;
+      row._count.textContent = s.jobsAssigned.unemployed || 0;
       continue;
     }
-
     let unlockBuilding = null;
     if (jobId === 'farmer') unlockBuilding = 'fields';
     if (jobId === 'lumberjack') unlockBuilding = 'forester';
     if (jobId === 'stonemason') unlockBuilding = 'quarry';
-    const buildingCount = s ? (s.buildings[unlockBuilding] || 0) : 0;
-    const unlocked = s ? (s.unlockedJobs[jobId] || false) : false;
+    const buildingCount = s.buildings[unlockBuilding] || 0;
+    const unlocked = s.unlockedJobs[jobId] || false;
 
     if (buildingCount === 0) {
       row._gather.style.display = 'inline-block';
@@ -360,7 +338,7 @@ function updateJobs() {
   }
 }
 
-/* ---------- Upgrades UI ---------- */
+/* ---------- Upgrades ---------- */
 
 function createUpgradeCell(upgId) {
   const u = UPGRADES[upgId];
@@ -390,21 +368,13 @@ function createUpgradeCell(upgId) {
   btn.addEventListener('click', () => {
     const exceeds = game.upgradeCostExceedsStorage(upgId);
     const canAfford = game.canAffordUpgrade(upgId);
-    if (exceeds) {
-      // visual feedback
-      btn.style.transform = 'scale(0.98)';
-      setTimeout(()=>btn.style.transform='',120);
-      return;
-    }
-    if (!canAfford) {
+    if (exceeds || !canAfford) {
       btn.style.transform = 'scale(0.98)';
       setTimeout(()=>btn.style.transform='',120);
       return;
     }
     const success = game.buyUpgrade(upgId);
-    if (success) {
-      renderAll();
-    }
+    if (success) renderAll();
   });
 
   controls.appendChild(count);
@@ -422,16 +392,12 @@ function createUpgradeCell(upgId) {
 
 function renderUpgrades() {
   const grid = $('upgrade-grid');
-  if (!grid) return;
   grid.innerHTML = '';
-  const keys = Object.keys(UPGRADES);
-  let anyVisible = false;
-  for (const id of keys) {
+  for (const id of Object.keys(UPGRADES)) {
     const cell = createUpgradeCell(id);
     grid.appendChild(cell);
   }
   updateUpgrades();
-  // show/hide "all bought" message
   const allBought = Object.keys(UPGRADES).every(k => {
     const max = UPGRADES[k].maxPurchases;
     const bought = game.state.upgradesPurchased[k] || 0;
@@ -441,17 +407,17 @@ function renderUpgrades() {
 }
 
 function updateUpgrades() {
-  const s = game && game.state;
-  for (const cell of document.querySelectorAll('.building-cell')) {
-    if (!cell._id) continue;
-    if (!UPGRADES[cell._id]) continue;
+  const s = game.state;
+  // Scope to upgrade grid to avoid touching building cells
+  const cells = $('upgrade-grid').querySelectorAll('.building-cell');
+  cells.forEach(cell => {
     const id = cell._id;
-    const bought = s ? (s.upgradesPurchased[id] || 0) : 0;
+    const bought = s.upgradesPurchased[id] || 0;
     cell._count.textContent = `Level: ${bought}`;
     const max = UPGRADES[id].maxPurchases;
     if (bought >= max) {
       cell.style.display = 'none';
-      continue;
+      return;
     } else {
       cell.style.display = '';
     }
@@ -465,17 +431,15 @@ function updateUpgrades() {
     } else {
       cell._btn.style.color = 'var(--accent)';
     }
-  }
+  });
 }
 
 /* ---------- Event log ---------- */
 
 function renderLog() {
   const el = $('event-log');
-  if (!el) return;
   el.innerHTML = '';
-  const events = game && game.state ? game.state.events : [];
-  for (const e of events.slice(0,200)) {
+  for (const e of game.state.events.slice(0,200)) {
     const div = document.createElement('div');
     div.textContent = e;
     el.appendChild(div);
@@ -501,19 +465,16 @@ document.addEventListener('mousemove', (e) => {
   if (tooltip.style.display === 'block') positionTooltip(e);
 });
 
-/* ---------- Controls: pause / reset / save / load ---------- */
+/* ---------- Controls ---------- */
 
 function wireControls() {
   const pauseBtn = $('pause-btn');
   const resetBtn = $('reset-btn');
-  const saveBtn = $('save-btn');
-  const loadBtn = $('load-btn');
   const tickRateEl = $('tick-rate');
   if (tickRateEl) tickRateEl.textContent = TICKS_PER_SECOND;
 
   if (pauseBtn) {
     pauseBtn.addEventListener('click', () => {
-      if (!game) return;
       if (game.tickInterval) {
         game.stop();
         pauseBtn.textContent = 'Unpause';
@@ -529,51 +490,9 @@ function wireControls() {
       resetGame();
     });
   }
-
-  if (saveBtn) {
-    saveBtn.addEventListener('click', () => {
-      if (!game) return;
-      game.saveToLocalStorage(SAVE_KEY);
-      resetAutosaveTimer();
-    });
-  }
-
-  if (loadBtn) {
-    loadBtn.addEventListener('click', () => {
-      if (!game) return;
-      const ok = game.loadFromLocalStorage(SAVE_KEY);
-      if (!ok) {
-        game.logEvent('Load failed: no save found. Resetting game.');
-        resetGame();
-      } else {
-        renderAll();
-      }
-      resetAutosaveTimer();
-    });
-  }
 }
 
-/* ---------- Autosave ---------- */
-
-function startAutosave() {
-  stopAutosave();
-  autosaveTimer = setInterval(() => {
-    if (game) game.saveToLocalStorage(SAVE_KEY);
-  }, AUTOSAVE_MS);
-}
-
-function stopAutosave() {
-  if (autosaveTimer) {
-    clearInterval(autosaveTimer);
-    autosaveTimer = null;
-  }
-}
-
-function resetAutosaveTimer() {
-  startAutosave();
-}
-
-/* ---------- Reset / lifecycle ---------- */
+/* ---------- Lifecycle ---------- */
 
 function resetGame() {
   if (game) {
@@ -583,10 +502,7 @@ function resetGame() {
   game.onUpdate(() => renderAll());
   game.start();
   renderAll();
-  resetAutosaveTimer();
 }
-
-/* ---------- Render orchestration ---------- */
 
 function renderAll() {
   updateResources();
@@ -596,8 +512,6 @@ function renderAll() {
   renderLog();
 }
 
-/* ---------- Init ---------- */
-
 function init() {
   renderResources();
   renderBuildings();
@@ -606,15 +520,8 @@ function init() {
   renderLog();
   wireControls();
 
-  if (game) {
-    game.onUpdate(() => renderAll());
-    game.start();
-  } else {
-    resetGame();
-  }
-
-  // start autosave
-  startAutosave();
+  game.onUpdate(() => renderAll());
+  game.start();
 }
 
 init();
