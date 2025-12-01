@@ -151,7 +151,6 @@ function createBuildingCell(bId) {
   const btn = document.createElement('button');
   btn.className = 'btn';
   btn.textContent = 'Build';
-  btn.title = 'Cost: hover to see details';
   btn.addEventListener('mouseenter', (e) => {
     showTooltip(e, () => {
       const cost = game.getBuildCost(bId);
@@ -456,3 +455,4 @@ function init() {
 }
 
 init();
+
